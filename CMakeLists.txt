@@ -74,7 +74,7 @@ if(BR_EMBEDDED)
 endif()
 
 # Find Qt
-set(QT_DEPENDENCIES Concurrent Core)
+set(QT_DEPENDENCIES ${QT_DEPENDENCIES} Concurrent Core)
 if(NOT BR_EMBEDDED)
   set(QT_DEPENDENCIES ${QT_DEPENDENCIES} Gui Network Sql Widgets Xml)
 endif()
@@ -82,11 +82,20 @@ foreach(QT_DEPENDENCY ${QT_DEPENDENCIES})
   find_package(Qt5${QT_DEPENDENCY})
 endforeach()
 set(BR_THIRDPARTY_LIBS ${BR_THIRDPARTY_LIBS} ${Qt5Core_QTMAIN_LIBRARIES})
+if(IOS)
+  list(APPEND BR_THIRDPARTY_LIBS "${_qt5Core_install_prefix}/lib/libqtpcre.a")
+endif()
 
 # Find OpenCV
 find_package(OpenCV 2.4.5 REQUIRED)
-set(OPENCV_DEPENDENCIES opencv_core opencv_highgui opencv_imgproc opencv_ml)
-set(BR_THIRDPARTY_LIBS ${BR_THIRDPARTY_LIBS} ${OPENCV_DEPENDENCIES})
+if(IOS)
+  file(GLOB OPENCV_IOS_LIBS "${OpenCV_DIR}/../../lib/*.a")
+  list(APPEND BR_THIRDPARTY_LIBS ${OPENCV_IOS_LIBS})
+  list(APPEND BR_THIRDPARTY_LIBS "-framework Foundation -framework UIKit -framework Security -lc++")
+else()
+  set(OPENCV_DEPENDENCIES opencv_core opencv_highgui opencv_imgproc opencv_ml)
+  set(BR_THIRDPARTY_LIBS ${BR_THIRDPARTY_LIBS} ${OPENCV_DEPENDENCIES})
+endif()
 
 # Find Alphanum
 find_package(Alphanum REQUIRED)

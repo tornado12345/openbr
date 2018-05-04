@@ -45,7 +45,7 @@ private:
         }
 
         CaffeNet *net = new CaffeNet(model, caffe::TEST);
-        net->CopyTrainedLayersFrom(weights.toStdString());
+        net->CopyTrainedLayersFromBinaryProto(weights.toStdString());
         FLAGS_minloglevel = google::ERROR; // Disable Caffe's verbose output after loading the first model
         return net;
     }
@@ -188,6 +188,7 @@ class CaffeClassifierTransform : public CaffeBaseTransform
     }
 };
 
+BR_REGISTER(Transform, CaffeBaseTransform)
 BR_REGISTER(Transform, CaffeClassifierTransform)
 
 } // namespace br

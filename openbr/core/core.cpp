@@ -74,17 +74,20 @@ struct AlgorithmCore
                 if (data[i].file.get<bool>("allPartitions",false))
                     data.removeAt(i);
 
-        if (transform.isNull()) qFatal("Null transform.");
         qDebug("%d Training Files", data.size());
 
         Globals->startTime.start();
 
-        qDebug("Training Enrollment");
-        trainingWrapper->train(data);
+        if (!transform.isNull()) {
+            qDebug("Training Enrollment");
+            trainingWrapper->train(data);
+        }
 
         if (!distance.isNull() && distance->trainable()) {
-            qDebug("Projecting Enrollment");
-            trainingWrapper->projectUpdate(data,data);
+            if (!transform.isNull()) {
+                qDebug("Projecting Enrollment");
+                trainingWrapper->projectUpdate(data,data);
+            }
 
             TemplateList distanceData;
             for (int i=0; i<data.size(); i++)
@@ -109,6 +112,9 @@ struct AlgorithmCore
 
     void simplifyTransform()
     {
+        if (transform.isNull())
+            return;
+
         bool newTForm = false;
         Transform *temp = transform->simplify(newTForm);
         if (newTForm)
@@ -126,7 +132,8 @@ struct AlgorithmCore
         compressedWrite.open(QFile::WriteOnly);
 
         // Serialize algorithm to stream
-        transform->serialize(out);
+        if (transform)
+            transform->serialize(out);
 
         qint32 mode = None;
         if (!distance.isNull())
@@ -592,7 +599,7 @@ private:
 
         if ((words.size() < 1) || (words.size() > 2)) qFatal("Invalid algorithm format.");
 
-        transform = QSharedPointer<Transform>(Transform::make(words[0], NULL));
+        transform = QSharedPointer<Transform>(words[0].isEmpty() ? NULL : Transform::make(words[0], NULL));
         simplifyTransform();
 
         if (words.size() > 1) {

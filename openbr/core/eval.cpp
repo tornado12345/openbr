@@ -271,7 +271,9 @@ float Evaluate(const Mat &simmat, const Mat &mask, const File &csv, const QStrin
                 }
                 genuines.append(comparison.score);
                 if (firstGenuineReturns[comparison.query] < 1)
-                    firstGenuineReturns[comparison.query] = abs(firstGenuineReturns[comparison.query]) + 1;
+                    firstGenuineReturns[comparison.query] = (comparison.score == -std::numeric_limits<float>::max())
+                                                          ? std::numeric_limits<int>::max()
+                                                          : abs(firstGenuineReturns[comparison.query]) + 1;
                 if ((comparison.score != -std::numeric_limits<float>::max()) &&
                     (comparison.score < minGenuineScore))
                     minGenuineScore = comparison.score;
@@ -389,7 +391,7 @@ float Evaluate(const Mat &simmat, const Mat &mask, const File &csv, const QStrin
                          QString::number(tar, 'f', 2),
                          QString::number(getOperatingPointGivenTAR(operatingPoints, tar).FAR, 'f', 3))));
 
-    //Write CMC Table (CT)
+    // Write CMC Table (CT)
     lines.append(qPrintable(QString("CT,1,%1").arg(QString::number(getCMC(firstGenuineReturns, 1), 'f', 3))));
     lines.append(qPrintable(QString("CT,5,%1").arg(QString::number(getCMC(firstGenuineReturns, 5), 'f', 3))));
     lines.append(qPrintable(QString("CT,10,%1").arg(QString::number(getCMC(firstGenuineReturns, 10), 'f', 3))));
@@ -428,7 +430,7 @@ float Evaluate(const Mat &simmat, const Mat &mask, const File &csv, const QStrin
 
     // Write Cumulative Match Characteristic (CMC) curve
     const int Max_Retrieval = 200;
-    const int Report_Retrieval = 5;
+    const QList<int> Report_Retrieval_List = QList<int>() << 1 << 5 << 10 << 20 << 50 << 100;
     for (int i=1; i<=Max_Retrieval; i++) {
         const float retrievalRate = getCMC(firstGenuineReturns, i);
         lines.append(qPrintable(QString("CMC,%1,%2").arg(QString::number(i), QString::number(retrievalRate))));
@@ -436,15 +438,18 @@ float Evaluate(const Mat &simmat, const Mat &mask, const File &csv, const QStrin
 
     QtUtils::writeFile(csv, lines);
     if (maxSize > 0) qDebug("Template Size: %i bytes", (int)maxSize);
-    qDebug("TAR @ FAR = 0.01:    %.3f",getOperatingPointGivenFAR(operatingPoints, 0.01).TAR);
-    qDebug("TAR @ FAR = 0.001:   %.3f",getOperatingPointGivenFAR(operatingPoints, 0.001).TAR);
-    qDebug("TAR @ FAR = 0.0001:  %.3f",getOperatingPointGivenFAR(operatingPoints, 0.0001).TAR);
-    qDebug("TAR @ FAR = 0.00001: %.3f",getOperatingPointGivenFAR(operatingPoints, 0.00001).TAR);
-
-    qDebug("FNIR @ FPIR = 0.1:   %.3f", 1-getOperatingPointGivenFAR(searchOperatingPoints, 0.1).TAR);
-    qDebug("FNIR @ FPIR = 0.01:  %.3f", 1-getOperatingPointGivenFAR(searchOperatingPoints, 0.01).TAR);
-
-    qDebug("\nRetrieval Rate @ Rank = %d: %.3f", Report_Retrieval, getCMC(firstGenuineReturns, Report_Retrieval));
+    foreach (float FAR, QList<float>() << 0.01 << 0.001 << 0.0001 << 0.00001) {
+        const OperatingPoint op = getOperatingPointGivenFAR(operatingPoints, FAR);
+        printf("TAR & Similarity @ FAR = %.0e: %.3f %.3f\n", FAR, op.TAR, op.score);
+    }
+    printf("\n");
+    foreach (float FPIR, QList<float>() << 0.1 << 0.01) {
+        const OperatingPoint op = getOperatingPointGivenFAR(searchOperatingPoints, FPIR);
+        printf("FNIR @ FPIR = %.0e: %.3f\n", FPIR, 1-op.TAR);
+    }
+    printf("\n");
+    foreach (const int Report_Retrieval, Report_Retrieval_List)
+        printf("Retrieval Rate @ Rank = %d: %.3f\n", Report_Retrieval, getCMC(firstGenuineReturns, Report_Retrieval));
 
     return result;
 }
@@ -848,16 +853,42 @@ float EvalLandmarking(const QString &predictedGallery, const QString &truthGalle
     QStringList truthNames = File::get<QString>(truth, "name");
 
     int skipped = 0;
-    QList< QList<float> > pointErrors;
+    QList< QList<float> > pointErrorMagnitudes, pointErrorOrientations;
     QList<float> imageErrors;
     QList<float> normalizedLengths;
     for (int i=0; i<predicted.size(); i++) {
         const QString &predictedName = predictedNames[i];
-        const int truthIndex = truthNames.indexOf(predictedName);
+        int truthIndex;
+        if ((i < truthNames.size()) && (truthNames[i] == predictedNames[i]))
+            truthIndex = i;
+        else
+            truthIndex = truthNames.indexOf(predictedName);
         if (truthIndex == -1) qFatal("Could not identify ground truth for file: %s", qPrintable(predictedName));
+
         const QList<QPointF> predictedPoints = predicted[i].file.points();
-        const QList<QPointF> truthPoints = truth[truthIndex].file.points();
-        if (predictedPoints.size() != truthPoints.size() || truthPoints.contains(QPointF(-1,-1))) {
+        QList<QPointF> truthPoints = truth[truthIndex].file.points();
+
+        // Standardize how we represent unlabeled points here
+        const QPointF findNegOne(-1,-1);
+        const QPointF findZero(0,0);
+        const QPointF replace(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+        for (int j=0; j<truthPoints.size(); j++)
+            if ((truthPoints[j] == findNegOne) || (truthPoints[j] == findZero))
+                truthPoints[j] = replace;
+
+        if (normalizationIndexA >= truthPoints.size()) qFatal("Normalization index A is out of range.");
+        if (normalizationIndexB >= truthPoints.size()) qFatal("Normalization index B is out of range.");
+        const float normalizedLength = QtUtils::euclideanLength(truthPoints[normalizationIndexB] - truthPoints[normalizationIndexA]);
+        const float normalizedOrientation = QtUtils::orientation(truthPoints[normalizationIndexB], truthPoints[normalizationIndexA]);
+
+        if (// If the landmarks don't match up
+            (predictedPoints.size() != truthPoints.size())
+            // Or the landmarks used for normalization are missing
+            || qIsNaN(normalizedLength)
+            // Or the ground truth seems to be for another object in the image
+            || (QtUtils::euclideanLength(predictedPoints[normalizationIndexA] - truthPoints[normalizationIndexA]) / normalizedLength >= 0.5)
+            || (QtUtils::euclideanLength(predictedPoints[normalizationIndexB] - truthPoints[normalizationIndexB]) / normalizedLength >= 0.5)
+           ) {
             predicted.removeAt(i);
             predictedNames.removeAt(i);
             truth.removeAt(i);
@@ -866,27 +897,70 @@ float EvalLandmarking(const QString &predictedGallery, const QString &truthGalle
             continue;
         }
 
-        while (pointErrors.size() < predictedPoints.size())
-            pointErrors.append(QList<float>());
+        while (pointErrorMagnitudes.size() < predictedPoints.size()) {
+            pointErrorMagnitudes.append(QList<float>());
+            pointErrorOrientations.append(QList<float>());
+        }
 
         // Want to know error for every image.
-
-        if (normalizationIndexA >= truthPoints.size()) qFatal("Normalization index A is out of range.");
-        if (normalizationIndexB >= truthPoints.size()) qFatal("Normalization index B is out of range.");
-        const float normalizedLength = QtUtils::euclideanLength(truthPoints[normalizationIndexB] - truthPoints[normalizationIndexA]);
         normalizedLengths.append(normalizedLength);
         float totalError = 0;
+        int totalCount = 0;
         for (int j=0; j<predictedPoints.size(); j++) {
-            float error = QtUtils::euclideanLength(predictedPoints[j] - truthPoints[j])/normalizedLength;
-            totalError += error;
-            pointErrors[j].append(error);
+            const float error = QtUtils::euclideanLength(predictedPoints[j] - truthPoints[j])/normalizedLength;
+            if (!qIsNaN(error)) {
+                totalError += error;
+                pointErrorMagnitudes[j].append(error);
+                pointErrorOrientations[j].append(QtUtils::orientation(predictedPoints[j], truthPoints[j]) - normalizedOrientation);
+                totalCount++;
+            }
         }
-        imageErrors.append(totalError/predictedPoints.size());
+        imageErrors.append(totalError/totalCount);
     }
 
-    qDebug() << "Skipped" << skipped << "files due to point size mismatch.";
+    qDebug("Files skipped: %d", skipped);
 
-    QList<float> averagePointErrors; averagePointErrors.reserve(pointErrors.size());
+    // Adjust the point error to not penalize for systematic biases...
+    // ... by first calculating the average bias for each point
+    QList<QPointF> averagePointBiases;
+    for (int i=0; i<pointErrorMagnitudes.size(); i++) {
+        const QList<float> &magnitudes   = pointErrorMagnitudes[i];
+        const QList<float> &orientations = pointErrorOrientations[i];
+        QPointF cumulativePointBias;
+        for (int j=0; j<magnitudes.size(); j++) {
+            const float m = magnitudes[j];
+            const float o = orientations[j];
+            cumulativePointBias += QPointF(m*cos(o), m*sin(o));
+        }
+        averagePointBiases.append(cumulativePointBias / magnitudes.size());
+    }
+
+    // ... and then subtracting the average bias from each individual error.
+    for (int i=0; i<pointErrorMagnitudes.size(); i++) {
+        QList<float> &magnitudes   = pointErrorMagnitudes[i];
+        QList<float> &orientations = pointErrorOrientations[i];
+        const QPointF &bias = averagePointBiases[i];
+        for (int j=0; j<magnitudes.size(); j++) {
+            float &m = magnitudes[j];
+            float &o = orientations[j];
+            QPointF error(m*cos(o), m*sin(o));
+            error -= bias;
+            // At this point if we added up all the `error` vectors for a
+            // landmark they would sum to zero. Josh confirmed this when
+            // implementing the bias normalization correction, but removed it
+            // from the final implementation.
+
+            // Update the error magnitude for reporting MAE
+             m = QtUtils::euclideanLength(error);
+
+            // We don't need to update orientation because we don't use it
+            // again, but we do so anyway in the interest of pedantic
+            // correctness.
+            o = QtUtils::orientation(QPointF(0.f,0.f), error);
+        }
+    }
+
+    QList<float> averagePointErrors; averagePointErrors.reserve(pointErrorMagnitudes.size());
 
     QStringList lines;
     lines.append("Plot,X,Y");
@@ -896,7 +970,7 @@ float EvalLandmarking(const QString &predictedGallery, const QString &truthGalle
 
     // Example
     {
-        QScopedPointer<Transform> t(Transform::make("Open+Draw(verbose,rects=false,location=false)",NULL));
+        QScopedPointer<Transform> t(Transform::make("Open+Draw(verbose,rects=false,named=false,location=false)",NULL));
 
         QString filePath = "landmarking_examples_truth/sample.jpg";
         projectAndWrite(t.data(), truth[sampleIndex],filePath);
@@ -928,10 +1002,10 @@ float EvalLandmarking(const QString &predictedGallery, const QString &truthGalle
         lines.append("EXP,"+filePath+":"+predicted[exampleIndices[i].second].file.name+","+QString::number(exampleIndices[i].first));
     }
 
-    for (int i=0; i<pointErrors.size(); i++) {
-        std::sort(pointErrors[i].begin(), pointErrors[i].end());
-        averagePointErrors.append(Common::Mean(pointErrors[i]));
-        const QList<float> &pointError = pointErrors[i];
+    for (int i=0; i<pointErrorMagnitudes.size(); i++) {
+        QList<float> &pointError = pointErrorMagnitudes[i];
+        std::sort(pointError.begin(), pointError.end());
+        averagePointErrors.append(Common::Mean(pointError));
         const int keep = qMin(Max_Points, pointError.size());
         for (int j=0; j<keep; j++)
             lines.append(QString("Box,%1,%2").arg(QString::number(i), QString::number(pointError[j*(pointError.size()-1)/(keep-1)])));
@@ -944,7 +1018,7 @@ float EvalLandmarking(const QString &predictedGallery, const QString &truthGalle
 
     QtUtils::writeFile(csv, lines);
 
-    qDebug("Average Error for all Points: %.3f", averagePointError);
+    qDebug("Mean Average Error: %.4f", averagePointError);
 
     return averagePointError;
 }
@@ -1168,68 +1242,97 @@ void EvalKNN(const QString &knnGraph, const QString &knnTruth, const QString &cs
     qDebug("FNIR @ FPIR = 0.01:  %.3f", 1-getOperatingPointGivenFAR(operatingPoints, 0.01).TAR);
 }
 
-void EvalEER(const QString &predictedXML, QString gt_property, QString distribution_property){
+void EvalEER(const QString &predictedXML, QString gt_property, QString distribution_property, const QString &pdf) {
     if (gt_property.isEmpty())
-            gt_property = "LivenessGT";
+        gt_property = "LivenessGT";
     if (distribution_property.isEmpty())
-            distribution_property = "LivenessDistribution";
+        distribution_property = "LivenessClassScores";
     int classOneTemplateCount = 0;
     const TemplateList templateList(TemplateList::fromGallery(predictedXML));
 
     QHash<QString, int> gtLabels;
     QHash<QString, QList<float> > scores;
-     for (int i=0; i<templateList.size(); i++) {
-         QString templateKey = templateList[i].file.path() + templateList[i].file.baseName();
-         int gtLabel = templateList[i].file.get<int>(gt_property);
-         if (gtLabel == 1)
-             classOneTemplateCount++;
-         QList<float> templateScores = templateList[i].file.getList<float>(distribution_property);
-         gtLabels[templateKey] = gtLabel;
-         scores[templateKey] = templateScores;
-     }
+    for (int i=0; i<templateList.size(); i++) {
+        if (!templateList[i].file.contains(distribution_property) || !templateList[i].file.contains(gt_property))
+            continue;
+        QString templateKey = templateList[i].file.path() + templateList[i].file.baseName();
+        const int gtLabel = templateList[i].file.get<int>(gt_property);
+        if (gtLabel == 1)
+            classOneTemplateCount++;
+        const QList<float> templateScores = templateList[i].file.getList<float>(distribution_property);
+        gtLabels[templateKey] = gtLabel;
+        scores[templateKey] = templateScores;
+    }
 
-     const int numPoints = 200;
-     const float stepSize = 100.0/numPoints;
-     const int numTemplates = scores.size();
-     float thres = 0.0; //Between [0,100]
-     float thresNorm = 0.0; //Between [0,1]
-     int FA = 0, FR = 0;
-     float minDiff = 100;
-     float EER = 100;
-     float EERThres = 0;
+    const int numPoints  = 200;
+    const float stepSize = 100.0/numPoints;
+    const int numTemplates = scores.size();
+    float thres     = 0.0; //Between [0,100]
+    float thresNorm = 0.0; //Between [0,1]
+    float minDiff = 100, EER = 100, EERThres = 0;
+    QList<OperatingPoint> operatingPoints;
 
-     for(int i = 0; i <= numPoints; i++){
-         FA = 0, FR = 0;
-         thresNorm = thres/100.0;
-            foreach(const QString &key, scores.keys()){
-                int gtLabel = gtLabels[key];
-                //> thresNorm = class 0 (spoof) : < thresNorm = class 1 (genuine)
-                if (scores[key][0] >= thresNorm && gtLabel == 0)
-                    continue;
-                else if (scores[key][0] < thresNorm && gtLabel == 1)
-                    continue;
-                else if (scores[key][0] >= thresNorm && gtLabel == 1)
-                    FR +=1;
-                else if (scores[key][0] < thresNorm && gtLabel == 0)
-                    FA +=1;
-            }
-            float FAR = FA / float(numTemplates - classOneTemplateCount);
-            float FRR = FR / float(classOneTemplateCount);
+    for(int i = 0; i <= numPoints; i++) {
+        int FA = 0, FR = 0;
+        thresNorm = thres/100.0;
+        foreach(const QString &key, scores.keys()) {
+            int gtLabel = gtLabels[key];
+            //> thresNorm = class 0 (spoof) : < thresNorm = class 1 (genuine)
+            if (scores[key][0] >= thresNorm && gtLabel == 0)
+                continue;
+            else if (scores[key][0] < thresNorm && gtLabel == 1)
+                continue;
+            else if (scores[key][0] >= thresNorm && gtLabel == 1)
+                FR +=1;
+            else if (scores[key][0] < thresNorm && gtLabel == 0)
+                FA +=1;
+        }
+        const float FAR = FA / float(numTemplates - classOneTemplateCount);
+        const float FRR = FR / float(classOneTemplateCount);
+        operatingPoints.append(OperatingPoint(thresNorm, FAR, 1-FRR));
 
-            float diff = std::abs(FAR-FRR);
-            if (diff < minDiff){
-                minDiff = diff;
-                EER = (FAR+FRR)/2.0;
-                EERThres = thresNorm;
-            }
-         thres += stepSize;
-     }
+        const float diff = std::abs(FAR-FRR);
+        if (diff < minDiff) {
+            minDiff = diff;
+            EER = (FAR+FRR)/2.0;
+            EERThres = thresNorm;
+        }
+        thres += stepSize;
+    }
 
-     qDebug() <<"Class 0 Templates:" << classOneTemplateCount  << "Class 1 Templates:"
-             << numTemplates - classOneTemplateCount << "Total Templates:" << numTemplates;
-     qDebug("EER: %.3f @ Threshold %.3f", EER*100, EERThres);
+    printf("Class 0 Templates: %d\tClass 1 Templates: %d\tTotal Templates: %d\n",
+           numTemplates-classOneTemplateCount, classOneTemplateCount, numTemplates);
+    foreach (float FAR, QList<float>() << 0.1 << 0.01 << 0.001 << 0.0001) {
+        const OperatingPoint op = getOperatingPointGivenFAR(operatingPoints, FAR);
+        printf("TAR & Score @ FAR = %.0e: %.3f %.3f\n", FAR, op.TAR, op.score);
+    }
+    printf("EER: %.3f @ Threshold %.3f\n", EER*100, EERThres);
 
+    // Optionally write ROC curve
+    if (!pdf.isEmpty()) {
+        QStringList farValues, tarValues;
+        float expFAR  = std::max(ceil(log10(numTemplates - classOneTemplateCount)), 1.0);
+        float FARstep = expFAR / (float)(Max_Points - 1);
+        for (int i=0; i<Max_Points; i++) {
+            float FAR = pow(10, -expFAR + i*FARstep);
+            OperatingPoint op = getOperatingPointGivenFAR(operatingPoints, FAR);
+            farValues.append(QString::number(FAR));
+            tarValues.append(QString::number(op.TAR));
+        }
+
+        QStringList rSource;
+        rSource << "# Load libraries" << "library(ggplot2)" << "" << "# Set Data"
+                << "FAR <- c(" + farValues.join(",") + ")"
+                << "TAR <- c(" + tarValues.join(",") + ")"
+                << "data <- data.frame(FAR, TAR)"
+                << "" << "# Construct Plot" << "pdf(\"" + pdf + "\")"
+                << "print(qplot(FAR, TAR, data=data, geom=\"line\") + scale_x_log10() + theme_minimal())"
+                << "dev.off()";
+
+        QString rFile = "EvalEER.R";
+        QtUtils::writeFile(rFile, rSource);
+        QtUtils::runRScript(rFile);
+    }
 }
-
 
 } // namespace br

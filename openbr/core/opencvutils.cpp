@@ -302,18 +302,14 @@ void OpenCVUtils::storeModel(const cv::Algorithm &model, QDataStream &stream)
 
 void OpenCVUtils::loadModel(CvStatModel &model, QDataStream &stream)
 {
-    // Copy local file contents from stream
+    // Copy file contents from stream
     QByteArray data;
     stream >> data;
 
-    // Create local file
-    QTemporaryFile tempFile(QDir::tempPath()+"/model");
-    tempFile.open();
-    tempFile.write(data);
-    tempFile.close();
-
-    // Load MLP from local file
-    model.load(qPrintable(tempFile.fileName()));
+    // This code for reading a file from memory inspired by CvStatModel::load implementation
+    CvFileStorage *fs = cvOpenFileStorage(data.constData(), 0, CV_STORAGE_READ | CV_STORAGE_MEMORY);
+    model.read(fs, (CvFileNode*) cvGetSeqElem(cvGetRootFileNode(fs)->data.seq, 0));
+    cvReleaseFileStorage(&fs);
 }
 
 void OpenCVUtils::loadModel(cv::Algorithm &model, QDataStream &stream)
@@ -412,6 +408,44 @@ float OpenCVUtils::overlap(const QRectF &rect1, const QRectF &rect2) {
     if (overlap < 0)
         return 0;
     return overlap;
+}
+
+QString OpenCVUtils::rotatedRectToString(const RotatedRect &rotatedRect)
+{
+    return QString("RotatedRect(%1,%2,%3,%4,%5)").arg(QString::number(rotatedRect.center.x),
+                                                      QString::number(rotatedRect.center.y),
+                                                      QString::number(rotatedRect.size.width),
+                                                      QString::number(rotatedRect.size.height),
+                                                      QString::number(rotatedRect.angle));
+}
+
+cv::RotatedRect OpenCVUtils::rotateRectFromString(const QString &string, bool *ok)
+{
+    if (!string.startsWith("RotatedRect(") || !string.endsWith(")")) {
+        *ok = false;
+        return cv::RotatedRect();
+    }
+
+    const QStringList words = string.mid(12, string.size() - 13).split(",");
+    if (words.size() != 5) {
+        *ok = false;
+        return cv::RotatedRect();
+    }
+
+    cv::RotatedRect result;
+    result.center.x = words[0].toFloat(ok);
+    if (!ok) return cv::RotatedRect();
+    result.center.y = words[1].toFloat(ok);
+    if (!ok) return cv::RotatedRect();
+    result.size.width = words[2].toFloat(ok);
+    if (!ok) return cv::RotatedRect();
+    result.size.height = words[3].toFloat(ok);
+    if (!ok) return cv::RotatedRect();
+    result.angle = words[4].toFloat(ok);
+    if (!ok) return cv::RotatedRect();
+
+    *ok = true;
+    return result;
 }
 
 bool OpenCVUtils::overlaps(const QList<Rect> &posRects, const Rect &negRect, double overlap)

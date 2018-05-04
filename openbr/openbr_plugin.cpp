@@ -161,6 +161,8 @@ QVariant File::parse(const QString &value)
     if (ok) return point;
     const QRectF rect = QtUtils::toRect(value, &ok);
     if (ok) return rect;
+    const cv::RotatedRect rotatedRect = OpenCVUtils::rotateRectFromString(value, &ok);
+    if (ok) return QVariant::fromValue(rotatedRect);
     const int i = value.toInt(&ok);
     if (ok) return i;
     const float f = value.toFloat(&ok);
@@ -459,7 +461,7 @@ br_utemplate Template::toUniversalTemplate(const Template &t)
     const uint32_t personID    = findAndRemove<uint32_t>(map, "PersonID"   , std::numeric_limits<uint32_t>::max());
     const QByteArray metadata = QJsonDocument(QJsonObject::fromVariantMap(map)).toJson();
     const Mat &m = t;
-    return br_new_utemplate(algorithmID, frame, x, y, width, height, confidence, personID, metadata.data(), (const char*) m.data, m.rows * m.cols * m.elemSize());
+    return br_new_utemplate(algorithmID, frame, x, y, width, height, confidence, personID, metadata.constData(), (const char*) m.data, m.rows * m.cols * m.elemSize());
 }
 
 Template Template::fromUniversalTemplate(br_const_utemplate ut)
@@ -1419,12 +1421,24 @@ void br::Context::messageHandler(QtMsgType type, const QMessageLogContext &conte
         if (Globals->quiet) return;
         txt = QString("%1\n").arg(msg);
     } else {
+        // Ignore QSslSocket warnings, too much noise and not enough signal
+        if ((type == QtWarningMsg) && msg.contains("QSslSocket"))
+            return;
+
         switch (type) {
           case QtWarningMsg:  txt = QString("Warning: %1\n" ).arg(msg); break;
           case QtCriticalMsg: txt = QString("Critical: %1\n").arg(msg); break;
           default:            txt = QString("Fatal: %1\n"   ).arg(msg); break;
         }
-        txt += "  SDK Path: "  + Globals->sdkPath + "\n  File: " + QString(context.file) + "\n  Function: " + QString(context.function) + "\n  Line: " + QString::number(context.line) + "\n";
+
+        if (Globals->sdkPath != ":")
+            txt += "  SDK Path: "  + Globals->sdkPath + "\n";
+        if (!QString(context.file).isEmpty())
+            txt += "  File: " + QString(context.file) + "\n";
+        if (!QString(context.function).isEmpty())
+            txt += "  Function: " + QString(context.function) + "\n";
+        if (context.line != 0)
+            txt += "  Line: " + QString::number(context.line) + "\n";
     }
 
     std::cerr << txt.toStdString();
@@ -1670,8 +1684,8 @@ void Transform::project(const TemplateList &src, TemplateList &dst) const
         dst.append(Template());
     QFutureSynchronizer<void> futures;
     for (int i=0; i<dst.size(); i++)
-        if (Globals->parallelism > 1) futures.addFuture(QtConcurrent::run(_project, this, &src[i], &dst[i]));
-        else                          _project(this, &src[i], &dst[i]);
+        if ((Globals->parallelism > 1) && (dst.size() > 1)) futures.addFuture(QtConcurrent::run(_project, this, &src[i], &dst[i]));
+        else                                                _project(this, &src[i], &dst[i]);
     futures.waitForFinished();
 }
 

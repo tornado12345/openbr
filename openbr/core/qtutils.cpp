@@ -356,6 +356,11 @@ QStringList naturalSort(const QStringList &strings)
 
 bool runRScript(const QString &file)
 {
+// iOS doesn't support QProcess
+#ifdef QT_NO_PROCESS
+    (void) file;
+    return false;
+#else // !QT_NO_PROCESS
     QProcess RScript;
     RScript.start("Rscript", QStringList() << file);
     RScript.waitForFinished(-1);
@@ -364,14 +369,21 @@ bool runRScript(const QString &file)
                         "See online documentation of 'br_plot' for required R packages.  "
                         "Otherwise, try running Rscript on %s to get the exact error.", qPrintable(file));
     return result;
+#endif // QT_NO_PROCESS
 }
 
 bool runDot(const QString &file)
 {
+// iOS doesn't support QProcess
+#ifdef QT_NO_PROCESS
+    (void) file;
+    return false;
+#else // !QT_NO_PROCESS
     QProcess dot;
     dot.start("dot -Tpdf -O " + file);
     dot.waitForFinished(-1);
     return ((dot.exitCode() == 0) && (dot.error() == QProcess::UnknownError));
+#endif // QT_NO_PROCESS
 }
 
 void showFile(const QString &file)
@@ -398,7 +410,11 @@ QString toString(const QVariant &variant)
                                             QString::number(rect.y()),
                                             QString::number(rect.width()),
                                             QString::number(rect.height()));
-    } else if (variant.canConvert<cv::Mat>()) return OpenCVUtils::matrixToString(variant.value<cv::Mat>());
+    } else if (variant.canConvert<cv::Mat>()) {
+        return OpenCVUtils::matrixToString(variant.value<cv::Mat>());
+    } else if (variant.canConvert<cv::RotatedRect>()) {
+        return OpenCVUtils::rotatedRectToString(variant.value<cv::RotatedRect>());
+    }
 
     return QString();
 }
@@ -444,6 +460,11 @@ QString toTime(int s)
 float euclideanLength(const QPointF &point)
 {
     return sqrt(pow(point.x(), 2) + pow(point.y(), 2));
+}
+
+float orientation(const QPointF &pointA, const QPointF &pointB)
+{
+    return atan2(pointB.y() - pointA.y(), pointB.x() - pointA.x());
 }
 
 float overlap(const QRectF &r, const QRectF &s) {
@@ -523,7 +544,7 @@ void BlockCompression::close()
 
         quint32 bsize=  compressedBlock.size();
         blockWriter << bsize;
-        blockWriter.writeRawData(compressedBlock.data(), compressedBlock.size());
+        blockWriter.writeRawData(compressedBlock.constData(), compressedBlock.size());
     }
     // close the underlying device.
     basis->close();
@@ -620,7 +641,7 @@ qint64 BlockCompression::writeData(const char *data, qint64 remaining)
                 quint32 block_size = compressedBlock.size();
                 blockWriter << block_size;
 
-                int write_count = blockWriter.writeRawData(compressedBlock.data(), block_size);
+                int write_count = blockWriter.writeRawData(compressedBlock.constData(), block_size);
                 if (write_count != int(block_size))
                     qFatal("Didn't write enough data");
             }
