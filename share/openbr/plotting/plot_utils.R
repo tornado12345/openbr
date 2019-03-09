@@ -8,7 +8,7 @@ library("png")
 library("grid")
 
 # Code to format FAR values
-far_names <- list('0.001'="FAR = 0.1%", '0.01'="FAR = 1%")
+far_names <- list('0.0001'="FAR = 0.01%", '0.001'="FAR = 0.1%", '0.01'="FAR = 1%")
 far_labeller <- function(variable,value) {
     if (as.character(value) %in% names(far_names)) {
         return(far_names[as.character(value)])
@@ -313,7 +313,7 @@ plotEERSamples <- function(imData=NULL, gmData=NULL) {
 
 plotLandmarkSamples <- function(displaySample=NULL, expData=NULL, extData=NULL) {
     print(plotImage(displaySample[[1]], "Sample Landmarks", sprintf("Total Landmarks: %s", displaySample[[1]]$value)))
-    column <- if(majorSize > 1) majorHeader else "File"
+    column <- if(majorSize > 1) majorHeader else minorHeader
     if (nrow(EXT) != 0 && nrow(EXP)) {
         for (j in 1:length(algs)) {
             truthSample <- readImageData(EXT[EXT[,column] == algs[[j]],])
