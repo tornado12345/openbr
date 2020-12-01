@@ -160,7 +160,7 @@ float Evaluate(const QString &simmat, const QString &mask, const File &csv, unsi
         QScopedPointer<Format> format(Factory<Format>::make(simmat));
         scores = format->read();
     }
-    
+
     // Read mask matrix
     Mat truth;
     if (mask.isEmpty()) {
@@ -225,7 +225,7 @@ float Evaluate(const Mat &simmat, const Mat &mask, const File &csv, const QStrin
                     genuineSearches[comparison.query] = -1;
                 }
                 impostorCount++;
-            }                           
+            }
         }
     }
 
@@ -438,7 +438,7 @@ float Evaluate(const Mat &simmat, const Mat &mask, const File &csv, const QStrin
 
     QtUtils::writeFile(csv, lines);
     if (maxSize > 0) qDebug("Template Size: %i bytes", (int)maxSize);
-    foreach (float FAR, QList<float>() << 0.01 << 0.001 << 0.0001 << 0.00001) {
+    foreach (float FAR, QList<float>() << 1e-2 << 1e-3 << 1e-4 << 1e-5 << 1e-6) {
         const OperatingPoint op = getOperatingPointGivenFAR(operatingPoints, FAR);
         printf("TAR & Similarity @ FAR = %.0e: %.3f %.3f\n", FAR, op.TAR, op.score);
     }
@@ -633,9 +633,9 @@ float InplaceEval(const QString &simmat, const QString &target, const QString &q
     qint64 impAccum = highImpostors;
 
     QMapIterator<float, GenImpCounts> i(genScoresToCounts);
-    
+
     i.toBack();
-   
+
     // iterating in reverse order of thresholds
     while (i.hasPrevious()) {
         i.previous();
@@ -760,29 +760,29 @@ void EvalClassification(const QString &predictedGallery, const QString &truthGal
     qDebug("Overall Accuracy = %f", (float)tpc / (float)(tpc + fnc));
 }
 
-float EvalDetection(const QString &predictedGallery, const QString &truthGallery, const QString &csv, bool normalize, int minSize, int maxSize)
+float EvalDetection(const QString &predictedGallery, const QString &truthGallery, const QString &csv, bool normalize, int minSize, int maxSize, float relativeMinSize)
 {
     qDebug("Evaluating detection of %s against %s", qPrintable(predictedGallery), qPrintable(truthGallery));
     // Organized by file, QMap used to preserve order
     QMap<QString, Detections> allDetections = getDetections(predictedGallery, truthGallery);
 
     // Remove any bounding boxes with a side smaller than minSize
-    if (minSize > 0) {
+    if (minSize > 0 || relativeMinSize > 0) {
         if (Globals->verbose)
             qDebug("Removing boxes smaller than %d\n", minSize);
-        allDetections = filterDetections(allDetections,minSize);
+        allDetections = filterDetections(allDetections, minSize, true, relativeMinSize);
     }
 
     // Remove any bounding boxes with no side smaller than maxSize
     if (maxSize > 0) {
         if (Globals->verbose)
             qDebug("Removing boxes larger than %d\n", maxSize);
-        allDetections = filterDetections(allDetections,maxSize,false);
+        allDetections = filterDetections(allDetections, maxSize, false);
     }
 
     QList<ResolvedDetection> resolvedDetections, falseNegativeDetections;
     QRectF normalizations(0, 0, 0, 0);
-    
+
     // Associate predictions to ground truth
     int totalTrueDetections = associateGroundTruthDetections(resolvedDetections, falseNegativeDetections, allDetections, normalizations);
 

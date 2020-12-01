@@ -69,7 +69,6 @@ public:
 
         bool daemon = false;
         const char *daemon_pipe = NULL;
-        bool isInt = false;
         while (daemon || (argc > 0)) {
             const char *fun;
             int parc;
@@ -80,10 +79,11 @@ public:
             fun = argv[0];
             if (fun[0] == '-') fun++;
             parc = 0;
-            QString(argv[parc+1]).toInt(&isInt);
-            while ((parc+1 < argc) && ((argv[parc+1][0] != '-') || isInt)) {
+            bool isNumber = false;
+            QString(argv[parc+1]).toDouble(&isNumber);
+            while ((parc+1 < argc) && ((argv[parc+1][0] != '-') || isNumber)) {
                 parc++;
-                QString(argv[parc+1]).toInt(&isInt);
+                QString(argv[parc+1]).toDouble(&isNumber);
             }
             parv = (const char **)&argv[1];
             argc = argc - (parc+1);
@@ -160,8 +160,8 @@ public:
                 check((parc >= 2) && (parc <= 5), "Incorrect parameter count for 'evalClustering'.");
                 br_eval_clustering(parv[0], parv[1], parc > 2 ? parv[2] : "", parc > 3 ? atoi(parv[3]) : 1, parc > 4 ? parv[4] : "");
             } else if (!strcmp(fun, "evalDetection")) {
-                check((parc >= 2) && (parc <= 6), "Incorrect parameter count for 'evalDetection'.");
-                br_eval_detection(parv[0], parv[1], parc >= 3 ? parv[2] : "", parc >= 4 ? atoi(parv[3]) : 0, parc >= 5 ? atoi(parv[4]) : 0, parc == 6 ? atoi(parv[5]) : 0);
+                check((parc >= 2) && (parc <= 7), "Incorrect parameter count for 'evalDetection'.");
+                br_eval_detection(parv[0], parv[1], parc >= 3 ? parv[2] : "", parc >= 4 ? atoi(parv[3]) : 0, parc >= 5 ? atoi(parv[4]) : 0, parc >= 6 ? atoi(parv[5]) : 0, parc >= 7 ? atof(parv[6]) : 0);
             } else if (!strcmp(fun, "evalLandmarking")) {
                 check((parc >= 2) && (parc <= 7), "Incorrect parameter count for 'evalLandmarking'.");
                 br_eval_landmarking(parv[0], parv[1], parc >= 3 ? parv[2] : "", parc >= 4 ? atoi(parv[3]) : 0, parc >= 5 ? atoi(parv[4]) : 1,  parc >= 6 ? atoi(parv[5]) : 0, parc >= 7 ? atoi(parv[6]) : 5);

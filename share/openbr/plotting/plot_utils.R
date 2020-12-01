@@ -62,6 +62,19 @@ plotTable <- function(tableData=NULL, name=NULL, labels=NULL) {
     }
 }
 
+plotTAR <- function(tableData=NULL, operatingPoint=1e-4) {
+    if (nrow(tableData) == 0) return()
+    major <- majorHeader
+    minor <- if(minorHeader == "") majorHeader else minorHeader
+    tableData <- tableData[grep(operatingPoint,tableData$X),]
+    mat <- matrix(tableData$Y, nrow=length(tableData[,major][!duplicated(tableData[,major])]), ncol=length(tableData[,minor][!duplicated(tableData[,minor])]), byrow=FALSE)
+    colnames(mat) <- tableData[,minor][!duplicated(tableData[,minor])]
+    rownames(mat) <- tableData[,major][!duplicated(tableData[,major])]
+    table <- as.table(mat)
+    print(textplot(table))
+    print(title(paste("True Accept Rate at FAR=", toString(operatingPoint))))
+}
+
 plotLandmarkTables <- function(tableData=NULL) {
     if (majorSize > 1) {
         var <- majorHeader
@@ -104,7 +117,7 @@ plotLine <- function(lineData=NULL, options=NULL, flipY=FALSE, geometry="path") 
         if ("yLimits" %in% names(options)) p <- p + coord_cartesian(ylim=eval(parse(text=options$yLimits)))
     }
     p <- p + theme(legend.title = element_text(size = textSize), legend.text = element_text(size = textSize), plot.title = element_text(size = textSize), axis.text = element_text(size = textSize), axis.title.x = element_text(size = textSize), axis.title.y = element_text(size = textSize), legend.position=if("legendPosition" %in% names(options)) eval(parse(text=options$legendPosition)) else "bottom", legend.background = element_rect(fill = 'white'), panel.grid.major = element_line(colour = "gray"), panel.grid.minor = element_line(colour = "gray", linetype = "dashed"))
-    p <- p + guides(col=guide_legend(ncol=ncol))
+    p <- p + guides(colour=guide_legend(ncol=ncol)) + guides(linetype=guide_legend(ncol=ncol))
     return(p)
 }
 

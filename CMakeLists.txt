@@ -83,7 +83,7 @@ find_package(Qt5 COMPONENTS ${QT_DEPENDENCIES} REQUIRED)
 
 set(BR_THIRDPARTY_LIBS ${BR_THIRDPARTY_LIBS} ${Qt5Core_QTMAIN_LIBRARIES})
 if(IOS)
-  list(APPEND BR_THIRDPARTY_LIBS "${_qt5Core_install_prefix}/lib/libqtpcre.a")
+  list(APPEND BR_THIRDPARTY_LIBS "${_qt5Core_install_prefix}/lib/libqtpcre2.a")
 endif()
 
 # Find OpenCV
@@ -91,10 +91,13 @@ find_package(OpenCV 2.4.5 REQUIRED)
 if(IOS)
   file(GLOB OPENCV_IOS_LIBS "${OpenCV_DIR}/../../lib/*.a")
   list(APPEND BR_THIRDPARTY_LIBS ${OPENCV_IOS_LIBS})
-  list(APPEND BR_THIRDPARTY_LIBS "-framework Foundation -framework UIKit -framework Security -lc++")
+  list(APPEND BR_THIRDPARTY_LIBS "-framework Foundation -framework UIKit -framework Security -framework MobileCoreServices -lc++")
 else()
   set(OPENCV_DEPENDENCIES opencv_core opencv_highgui opencv_imgproc opencv_ml)
   set(BR_THIRDPARTY_LIBS ${BR_THIRDPARTY_LIBS} ${OPENCV_DEPENDENCIES})
+  if(APPLE)
+    list(APPEND BR_THIRDPARTY_LIBS "-framework Accelerate")
+  endif()
 endif()
 
 # Find Alphanum
@@ -114,7 +117,7 @@ endif()
 
 # Compiler flags
 if(UNIX)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-strict-overflow -Wno-comment -Wno-unknown-pragmas -fvisibility=hidden -fno-omit-frame-pointer")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-strict-overflow -Wno-terminate -Wno-sign-compare -Wno-unused-local-typedefs -Wno-int-in-bool-context -Wno-comment -Wno-unknown-pragmas -fvisibility=hidden -fno-omit-frame-pointer")
   set(CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/lib ${_qt5Core_install_prefix}/lib)
   if(NOT APPLE)
     if(${CMAKE_CXX_COMPILER} STREQUAL "/opt/intel/bin/icpc")
